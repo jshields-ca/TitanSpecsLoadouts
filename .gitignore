@@ -1,0 +1,20 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# WoW / addon packaging artifacts
+*.zip
+*.7z
+*.rar
+
+# Lua tooling (if used later)
+luac.out

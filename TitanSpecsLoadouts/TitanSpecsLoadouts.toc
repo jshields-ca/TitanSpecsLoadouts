@@ -1,0 +1,11 @@
+## Interface: 120001
+## Title: Titan Panel [|cffeda55fSpecs & Loadouts|r] |cff00aa000.1.0|r by scootR
+## Notes: Titan Panel plugin showing current specialization and active talent loadout with quick switching.
+## Author: scootR
+## Version: 0.1.0
+## IconTexture: Interface\Icons\ability_dualwield
+## Dependencies: Titan
+## X-Child-Of: Titan
+
+Locales.lua
+TitanSpecsLoadouts.lua

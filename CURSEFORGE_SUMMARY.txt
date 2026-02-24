@@ -1,0 +1,2 @@
+Titan Panel plugin that shows your current specialization and active talent loadout, with right-click quick switching across saved loadouts (including cross-spec swaps).
+Lightweight, focused, and built for modern Retail talent loadout APIs.
