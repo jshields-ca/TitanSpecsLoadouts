@@ -28,7 +28,7 @@ If you frequently swap between raid, Mythic+, solo, or utility setups, this plug
 
 ## Requirements
 
-- **World of Warcraft Retail** (The War Within / Dragonflight compatible)
+- **World of Warcraft Retail** (Midnight compatible)
 - **Titan Panel** (required dependency)
 
 ## Installation
@@ -60,4 +60,4 @@ Created by **scootR**
 
 ## Feedback
 
-Bug reports and suggestions welcome via GitHub Issues. Please include your class/spec, WoW version, and a short reproduction path.
+Bug reports and suggestions welcome via GitHub Issues or CurseForge comments. Please include your class/spec, WoW version, and a short reproduction path.
