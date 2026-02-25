@@ -18,6 +18,11 @@ local pending = {
 -- does not update reliably after LoadConfig fires.
 local addonTrackedConfigID = nil
 
+-- Track the last spec we knew about so PLAYER_SPECIALIZATION_CHANGED can
+-- distinguish a real spec change from an intra-spec loadout switch
+-- (WoW fires that event for both).
+local lastKnownSpecID = nil
+
 local function getTitanHideMenuText()
 	if TITAN_PANEL_MENU_HIDE and TITAN_PANEL_MENU_HIDE ~= "" then
 		return TITAN_PANEL_MENU_HIDE
@@ -540,19 +545,29 @@ end
 local eventsTable = {
 	PLAYER_ENTERING_WORLD = function(self)
 		self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+		local spec = getCurrentSpecInfo()
+		lastKnownSpecID = spec and spec.specID
 		addonTrackedConfigID = nil  -- clear so PLAYER_TALENT_UPDATE seeds from API
 		onRelevantUpdate()
 	end,
 	ACTIVE_TALENT_GROUP_CHANGED = function()
+		local spec = getCurrentSpecInfo()
+		lastKnownSpecID = spec and spec.specID
 		addonTrackedConfigID = nil  -- spec changed externally; re-seed on next PLAYER_TALENT_UPDATE
 		onRelevantUpdate()
 	end,
 	PLAYER_SPECIALIZATION_CHANGED = function()
-		-- Clear tracked config for the old spec.
-		-- Do NOT call tryFinalizePending here: WoW will auto-load its default loadout
-		-- for the new spec AFTER this event fires, which would overwrite our LoadConfig.
-		-- Instead, finalize on PLAYER_TALENT_UPDATE which fires after WoW's auto-load settles.
-		addonTrackedConfigID = nil
+		-- WoW fires this event for BOTH real spec changes AND same-spec loadout switches.
+		-- Only clear addonTrackedConfigID when the spec actually changed, so that intra-spec
+		-- loadout switches don't wipe out the config we just set.
+		-- Do NOT call tryFinalizePending here: WoW auto-loads its default loadout for the new
+		-- spec AFTER this event fires; finalize on PLAYER_TALENT_UPDATE instead.
+		local currentSpec = getCurrentSpecInfo()
+		local currentSpecID = currentSpec and currentSpec.specID
+		if currentSpecID ~= lastKnownSpecID then
+			addonTrackedConfigID = nil
+			lastKnownSpecID = currentSpecID
+		end
 		updateButton()
 	end,
 	TRAIT_CONFIG_LIST_UPDATED = function()
@@ -562,6 +577,9 @@ local eventsTable = {
 		onRelevantUpdate()
 	end,
 	PLAYER_TALENT_UPDATE = function()
+		-- Keep lastKnownSpecID current so PLAYER_SPECIALIZATION_CHANGED comparisons are accurate.
+		local spec = getCurrentSpecInfo()
+		if spec then lastKnownSpecID = spec.specID end
 		-- tryFinalizePending runs first: ensures addonTrackedConfigID is set to our
 		-- target before seedTrackedConfigFromAPI can overwrite it with the default.
 		onRelevantUpdate()
