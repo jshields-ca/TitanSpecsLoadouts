@@ -160,19 +160,25 @@ local function getCurrentSelectedConfigID()
 		return nil
 	end
 
-	-- Prioritize GetActiveConfigID (what's truly loaded) over GetLastSelectedSavedConfigID (UI state)
-	local configID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
-	print("|cff00ff00[Specs & Loadouts]|r DEBUG: GetActiveConfigID() =", configID)
-
-	if not configID or configID <= 0 then
-		local currentSpec = getCurrentSpecInfo()
-		if currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID then
-			configID = C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
-			print("|cff00ff00[Specs & Loadouts]|r DEBUG: GetLastSelectedSavedConfigID() =", configID)
+	-- For display purposes, prioritize GetLastSelectedSavedConfigID (the actual saved loadout applied)
+	-- over GetActiveConfigID (which returns the spec's primary/base config)
+	local currentSpec = getCurrentSpecInfo()
+	if currentSpec then
+		local lastSelectedID = C_ClassTalents.GetLastSelectedSavedConfigID and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+		print("|cff00ff00[Specs & Loadouts]|r DEBUG: GetLastSelectedSavedConfigID() =", lastSelectedID)
+		if lastSelectedID and lastSelectedID > 0 then
+			return lastSelectedID
 		end
 	end
 
-	return tonumber(configID) or nil
+	-- Fallback to active config (for specs with no saved loadouts selected yet)
+	local activeID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+	print("|cff00ff00[Specs & Loadouts]|r DEBUG: GetActiveConfigID() =", activeID)
+	if activeID and activeID > 0 then
+		return activeID
+	end
+
+	return nil
 end
 
 local function updateDynamicIcon()
