@@ -14,6 +14,10 @@ local pending = {
 	targetConfigID = nil,
 }
 
+-- Track the config we loaded ourselves, since GetLastSelectedSavedConfigID
+-- does not update reliably after LoadConfig fires.
+local addonTrackedConfigID = nil
+
 local function getTitanHideMenuText()
 	if TITAN_PANEL_MENU_HIDE and TITAN_PANEL_MENU_HIDE ~= "" then
 		return TITAN_PANEL_MENU_HIDE
@@ -160,18 +164,22 @@ local function getCurrentSelectedConfigID()
 		return nil
 	end
 
-	-- For display purposes, prioritize GetLastSelectedSavedConfigID (the actual saved loadout applied)
-	-- over GetActiveConfigID (which returns the spec's primary/base config)
+	-- First priority: what we explicitly loaded (reliable, since the API doesn't update GetLastSelectedSavedConfigID)
+	if addonTrackedConfigID then
+		print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - using addonTrackedConfigID=", addonTrackedConfigID)
+		return addonTrackedConfigID
+	end
+
+	-- Fallback: read from WoW API for initial state (before any addon-initiated switch)
 	local currentSpec = getCurrentSpecInfo()
 	if currentSpec then
 		local lastSelectedID = C_ClassTalents.GetLastSelectedSavedConfigID and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
-		print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - GetLastSelectedSavedConfigID() =", lastSelectedID, "for specID", currentSpec.specID)
+		print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - GetLastSelectedSavedConfigID() =", lastSelectedID)
 		if lastSelectedID and lastSelectedID > 0 then
 			return lastSelectedID
 		end
 	end
 
-	-- Fallback to active config (for specs with no saved loadouts selected yet)
 	local activeID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
 	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - GetActiveConfigID() =", activeID)
 	if activeID and activeID > 0 then
@@ -339,46 +347,22 @@ local function loadConfigID(specID, configID)
 		return
 	end
 
-	-- Update last selected BEFORE loading so the UI state is ready
-	if C_ClassTalents.UpdateLastSelectedSavedConfigID then
-		C_ClassTalents.UpdateLastSelectedSavedConfigID(configID)
-		print("|cff00ff00[Specs & Loadouts]|r Called UpdateLastSelectedSavedConfigID with configID=", configID)
-		-- Verify the value was updated
-		local currentSpec = getCurrentSpecInfo()
-		if currentSpec then
-			local verifyID = C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
-			print("|cff00ff00[Specs & Loadouts]|r Verified GetLastSelectedSavedConfigID now returns=", verifyID)
-		end
-	end
-
 	local result = C_ClassTalents.LoadConfig(configID, true)
 	result = normalizeLoadConfigResult(result)
 
-	-- DEBUG: Print result to see what's being returned
 	print("|cff00ff00[Specs & Loadouts]|r LoadConfig result:", result, "configID:", configID)
-	if Enum and Enum.LoadConfigResult then
-		print(string.format("|cff00ff00[Specs & Loadouts]|r Enum values - Error:%d, LoadInProgress:%d, NoChangesNecessary:%d",
-			Enum.LoadConfigResult.Error or -1,
-			Enum.LoadConfigResult.LoadInProgress or -1,
-			Enum.LoadConfigResult.NoChangesNecessary or -1))
-		print("|cff00ff00[Specs & Loadouts]|r Result comparison - Error:", result == Enum.LoadConfigResult.Error,
-			"LoadInProgress:", result == Enum.LoadConfigResult.LoadInProgress,
-			"NoChangesNecessary:", result == Enum.LoadConfigResult.NoChangesNecessary)
-	end
 
 	if Enum and Enum.LoadConfigResult then
 		if result == Enum.LoadConfigResult.Error then
-			print("|cffff0000[Specs & Loadouts]|r ERROR: LoadConfig failed!")
 			showSwitchFailed()
 			return
-		elseif result == Enum.LoadConfigResult.LoadInProgress then
-			print("|cffff9900[Specs & Loadouts]|r Load in progress, will retry...")
-			return
-		elseif result == Enum.LoadConfigResult.NoChangesNecessary then
-			-- Config is already active or no actual changes; still update UI
-			print("|cff00ff00[Specs & Loadouts]|r Config already active, updating UI...")
 		end
 	end
+
+	-- LoadConfig succeeded (LoadInProgress or NoChangesNecessary both mean it applied/is applying)
+	-- Track the config we loaded so display updates correctly regardless of what the API returns
+	addonTrackedConfigID = configID
+	print("|cff00ff00[Specs & Loadouts]|r addonTrackedConfigID set to", configID)
 end
 
 local function tryFinalizePending()
@@ -547,12 +531,15 @@ end
 local eventsTable = {
 	PLAYER_ENTERING_WORLD = function(self)
 		self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+		addonTrackedConfigID = nil  -- read fresh from API on login
 		onRelevantUpdate()
 	end,
 	ACTIVE_TALENT_GROUP_CHANGED = function()
+		addonTrackedConfigID = nil  -- spec changed externally; re-read from API
 		onRelevantUpdate()
 	end,
 	PLAYER_SPECIALIZATION_CHANGED = function()
+		addonTrackedConfigID = nil  -- spec changed; tracked ID is for old spec
 		onRelevantUpdate()
 	end,
 	TRAIT_CONFIG_LIST_UPDATED = function()
