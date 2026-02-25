@@ -343,9 +343,19 @@ local function loadConfigID(specID, configID)
 
 	-- DEBUG: Print result to see what's being returned
 	print("|cff00ff00[Specs & Loadouts]|r LoadConfig result:", result, "configID:", configID)
+	if Enum and Enum.LoadConfigResult then
+		print(string.format("|cff00ff00[Specs & Loadouts]|r Enum values - Error:%d, LoadInProgress:%d, NoChangesNecessary:%d",
+			Enum.LoadConfigResult.Error or -1,
+			Enum.LoadConfigResult.LoadInProgress or -1,
+			Enum.LoadConfigResult.NoChangesNecessary or -1))
+		print("|cff00ff00[Specs & Loadouts]|r Result comparison - Error:", result == Enum.LoadConfigResult.Error,
+			"LoadInProgress:", result == Enum.LoadConfigResult.LoadInProgress,
+			"NoChangesNecessary:", result == Enum.LoadConfigResult.NoChangesNecessary)
+	end
 
 	if Enum and Enum.LoadConfigResult then
 		if result == Enum.LoadConfigResult.Error then
+			print("|cffff0000[Specs & Loadouts]|r ERROR: LoadConfig failed!")
 			showSwitchFailed()
 			return
 		elseif result == Enum.LoadConfigResult.LoadInProgress then
@@ -389,22 +399,27 @@ local function activateLoadout(specID, configID)
 	end
 
 	configID = tonumber(configID) or configID
+	print("|cff00ff00[Specs & Loadouts]|r activateLoadout called: specID=", specID, "configID=", configID)
 
 	local current = getCurrentSpecInfo()
 	if current and current.specID == specID then
 		-- Check if this loadout is already active
 		local currentConfigID = getCurrentSelectedConfigID()
+		print("|cff00ff00[Specs & Loadouts]|r Same spec, currentConfigID=", currentConfigID, "target=", configID)
 		if currentConfigID and tonumber(currentConfigID) == tonumber(configID) then
 			-- Already active, no action needed
+			print("|cff00ff00[Specs & Loadouts]|r loadout already active, returning early")
 			return
 		end
 		-- Load the new loadout for current spec
+		print("|cff00ff00[Specs & Loadouts]|r Loading new config for current spec")
 		loadConfigID(specID, configID)
 		-- Force display update even if load is async/in-progress
 		updateButton()
 		return
 	end
 
+	print("|cff00ff00[Specs & Loadouts]|r Different spec, setting pending...")
 	pending.targetSpecID = specID
 	pending.targetConfigID = configID
 
