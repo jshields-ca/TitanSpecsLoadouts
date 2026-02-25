@@ -395,6 +395,9 @@ local function activateLoadout(specID, configID)
 			-- Already active, no action needed
 			return
 		end
+		-- User explicitly chose a same-spec loadout; cancel any in-flight cross-spec pending
+		-- so a delayed tryFinalizePending() event doesn't overwrite our new choice.
+		clearPending()
 		-- Load the new loadout for current spec
 		loadConfigID(specID, configID)
 		-- Force display update even if load is async/in-progress
