@@ -348,19 +348,30 @@ local function tryFinalizePending()
 	if not pending.targetConfigID then
 		return
 	end
-	if not C_ClassTalents or not C_ClassTalents.GetActiveConfigID then
+
+	-- Must already be on the target spec; if not, wait for the next event
+	local currentSpec = getCurrentSpecInfo()
+	if not currentSpec or currentSpec.specID ~= pending.targetSpecID then
 		return
 	end
 
-	local activeConfigID = C_ClassTalents.GetActiveConfigID()
-	if not activeConfigID then
+	if not C_ClassTalents or not C_ClassTalents.LoadConfig then
+		showSwitchFailed()
+		clearPending()
 		return
 	end
 
-	local specID = pending.targetSpecID
-	local configID = pending.targetConfigID
+	local result = C_ClassTalents.LoadConfig(pending.targetConfigID, true)
+	result = normalizeLoadConfigResult(result)
+
+	if Enum and Enum.LoadConfigResult and result == Enum.LoadConfigResult.Error then
+		-- Spec is not fully settled yet; keep pending and retry on next event
+		return
+	end
+
+	-- LoadInProgress or NoChangesNecessary both mean the load is applying
+	addonTrackedConfigID = pending.targetConfigID
 	clearPending()
-	loadConfigID(specID, configID)
 	updateButton()
 end
 
@@ -543,10 +554,11 @@ local eventsTable = {
 		onRelevantUpdate()
 	end,
 	PLAYER_TALENT_UPDATE = function()
-		-- Seed from API if not set by an addon-initiated switch.
-		-- GetLastSelectedSavedConfigID is reliable by the time this event fires.
-		seedTrackedConfigFromAPI()
+		-- tryFinalizePending runs first: ensures addonTrackedConfigID is set to our
+		-- target before seedTrackedConfigFromAPI can overwrite it with the default.
 		onRelevantUpdate()
+		-- Seed from API only if no addon-initiated switch has set addonTrackedConfigID.
+		seedTrackedConfigFromAPI()
 	end,
 }
 
