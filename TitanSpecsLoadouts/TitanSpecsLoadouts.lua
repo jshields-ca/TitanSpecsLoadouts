@@ -338,6 +338,11 @@ local function loadConfigID(specID, configID)
 		return
 	end
 
+	-- Update last selected BEFORE loading so the UI state is ready
+	if C_ClassTalents.UpdateLastSelectedSavedConfigID then
+		C_ClassTalents.UpdateLastSelectedSavedConfigID(configID)
+	end
+
 	local result = C_ClassTalents.LoadConfig(configID, true)
 	result = normalizeLoadConfigResult(result)
 
@@ -365,11 +370,6 @@ local function loadConfigID(specID, configID)
 			-- Config is already active or no actual changes; still update UI
 			print("|cff00ff00[Specs & Loadouts]|r Config already active, updating UI...")
 		end
-	end
-
-	-- Update last selected so UI state stays in sync
-	if C_ClassTalents.UpdateLastSelectedSavedConfigID then
-		C_ClassTalents.UpdateLastSelectedSavedConfigID(configID)
 	end
 end
 
