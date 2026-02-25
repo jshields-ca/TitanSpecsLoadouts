@@ -54,6 +54,7 @@ If you frequently swap between raid, Mythic+, solo, or utility setups, this plug
 ## Author
 
 Created by **scootR**
+- Website: [scootr.ca](https://scootr.ca)
 - BlueSky: [bsky.app/profile/scootr.ca](https://bsky.app/profile/scootr.ca)
 - GitHub: [github.com/jshields-ca/TitanSpecsLoadouts](https://github.com/jshields-ca/TitanSpecsLoadouts)
 
