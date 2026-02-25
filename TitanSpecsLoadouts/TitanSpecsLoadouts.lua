@@ -165,7 +165,7 @@ local function getCurrentSelectedConfigID()
 	local currentSpec = getCurrentSpecInfo()
 	if currentSpec then
 		local lastSelectedID = C_ClassTalents.GetLastSelectedSavedConfigID and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
-		print("|cff00ff00[Specs & Loadouts]|r DEBUG: GetLastSelectedSavedConfigID() =", lastSelectedID)
+		print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - GetLastSelectedSavedConfigID() =", lastSelectedID, "for specID", currentSpec.specID)
 		if lastSelectedID and lastSelectedID > 0 then
 			return lastSelectedID
 		end
@@ -173,7 +173,7 @@ local function getCurrentSelectedConfigID()
 
 	-- Fallback to active config (for specs with no saved loadouts selected yet)
 	local activeID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
-	print("|cff00ff00[Specs & Loadouts]|r DEBUG: GetActiveConfigID() =", activeID)
+	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - GetActiveConfigID() =", activeID)
 	if activeID and activeID > 0 then
 		return activeID
 	end
@@ -305,6 +305,7 @@ local function getCurrentLoadoutName()
 	end
 
 	local configID = getCurrentSelectedConfigID()
+	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - got configID=", configID)
 	if not configID then
 		print("|cffff9900[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - configID is nil")
 		return L["NoLoadout"]
@@ -316,7 +317,7 @@ local function getCurrentLoadoutName()
 		return L["NoLoadout"]
 	end
 
-	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName returning name=", cfg.name)
+	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - returning name=", cfg.name)
 	return cfg.name
 end
 
@@ -341,6 +342,13 @@ local function loadConfigID(specID, configID)
 	-- Update last selected BEFORE loading so the UI state is ready
 	if C_ClassTalents.UpdateLastSelectedSavedConfigID then
 		C_ClassTalents.UpdateLastSelectedSavedConfigID(configID)
+		print("|cff00ff00[Specs & Loadouts]|r Called UpdateLastSelectedSavedConfigID with configID=", configID)
+		-- Verify the value was updated
+		local currentSpec = getCurrentSpecInfo()
+		if currentSpec then
+			local verifyID = C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+			print("|cff00ff00[Specs & Loadouts]|r Verified GetLastSelectedSavedConfigID now returns=", verifyID)
+		end
 	end
 
 	local result = C_ClassTalents.LoadConfig(configID, true)
