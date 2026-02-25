@@ -27,7 +27,11 @@ Initial release.
 - `C_Traits.GetConfigInfo()` returns spec names, not loadout names; corrected to use `C_ClassTalents.GetConfigInfo()`.
 - `GetLastSelectedSavedConfigID()` is read-only and does not update after `LoadConfig()` fires; replaced tracking with addon-owned `addonTrackedConfigID` state variable.
 - `addonTrackedConfigID` is seeded from `GetLastSelectedSavedConfigID()` on `PLAYER_TALENT_UPDATE` (the first reliable moment after login/reload), then maintained by the addon for all subsequent switches.
-- `addonTrackedConfigID` is cleared on `PLAYER_SPECIALIZATION_CHANGED` and `ACTIVE_TALENT_GROUP_CHANGED` so it re-seeds correctly after any external spec change.
+- Cross-spec switch applied WoW's default loadout instead of the chosen one: `PLAYER_SPECIALIZATION_CHANGED` handler no longer calls `tryFinalizePending()`; WoW auto-loads its default for the new spec after that event fires, so finalization is deferred to `PLAYER_TALENT_UPDATE` once talent state is settled.
+- `seedTrackedConfigFromAPI()` would overwrite `addonTrackedConfigID` with WoW's auto-loaded default while a cross-spec switch was still pending (first `LoadConfig` call returned `Error`); fixed by returning early when `pending.targetConfigID` is set.
+- `PLAYER_SPECIALIZATION_CHANGED` and `ACTIVE_TALENT_GROUP_CHANGED` both fire for same-spec loadout switches as well as real spec changes; both handlers now track `lastKnownSpecID` and only clear `addonTrackedConfigID` when the spec actually changes.
+- Both handlers also guard against the spec API returning `nil` mid-event (which could falsely trigger a clear).
+- Stale `pending` from a cross-spec switch could be re-applied after the user immediately picked a same-spec loadout; `activateLoadout` now calls `clearPending()` before `loadConfigID()` when switching within the current spec.
 - Same-spec loadout switching now functions correctly regardless of `LoadConfig()` result code (`LoadInProgress` vs `NoChangesNecessary`).
 - Titan bar display updates immediately after a loadout switch rather than waiting for the next event cycle.
 - Menu width is stable on first open (no layout jump).
