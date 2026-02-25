@@ -551,9 +551,14 @@ local eventsTable = {
 		onRelevantUpdate()
 	end,
 	ACTIVE_TALENT_GROUP_CHANGED = function()
-		local spec = getCurrentSpecInfo()
-		lastKnownSpecID = spec and spec.specID
-		addonTrackedConfigID = nil  -- spec changed externally; re-seed on next PLAYER_TALENT_UPDATE
+		-- WoW fires this for both real spec changes and same-spec loadout switches.
+		-- Only clear addonTrackedConfigID when the spec actually changed.
+		local currentSpec = getCurrentSpecInfo()
+		local currentSpecID = currentSpec and currentSpec.specID
+		if currentSpecID ~= lastKnownSpecID then
+			addonTrackedConfigID = nil
+			lastKnownSpecID = currentSpecID
+		end
 		onRelevantUpdate()
 	end,
 	PLAYER_SPECIALIZATION_CHANGED = function()

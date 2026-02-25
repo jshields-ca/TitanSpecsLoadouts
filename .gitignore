@@ -11,6 +11,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Images For CurseForge
+*.png
+*.psd
+
 # WoW / addon packaging artifacts
 *.zip
 *.7z
