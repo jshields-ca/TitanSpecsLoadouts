@@ -162,11 +162,13 @@ local function getCurrentSelectedConfigID()
 
 	-- Prioritize GetActiveConfigID (what's truly loaded) over GetLastSelectedSavedConfigID (UI state)
 	local configID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+	print("|cff00ff00[Specs & Loadouts]|r DEBUG: GetActiveConfigID() =", configID)
 
 	if not configID or configID <= 0 then
 		local currentSpec = getCurrentSpecInfo()
 		if currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID then
 			configID = C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+			print("|cff00ff00[Specs & Loadouts]|r DEBUG: GetLastSelectedSavedConfigID() =", configID)
 		end
 	end
 
@@ -243,9 +245,20 @@ local function getConfigInfo(configID)
 		return nil
 	end
 
+	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getConfigInfo querying configID=", configID)
+
 	-- C_ClassTalents.GetConfigInfo returns the user-defined config name (for saved loadouts)
 	if C_ClassTalents and C_ClassTalents.GetConfigInfo then
-		return C_ClassTalents.GetConfigInfo(configID)
+		local cfg = C_ClassTalents.GetConfigInfo(configID)
+		if cfg then
+			print("|cff00ff00[Specs & Loadouts]|r DEBUG: C_ClassTalents.GetConfigInfo returned:")
+			for k, v in pairs(cfg) do
+				if k ~= "treeIDs" then  -- skip table field for clarity
+					print(string.format("|cff00ff00[Specs & Loadouts]|r   .%s = %s", k, tostring(v)))
+				end
+			end
+		end
+		return cfg
 	end
 
 	-- Fall back to C_Traits if C_ClassTalents not available
@@ -287,14 +300,17 @@ local function getCurrentLoadoutName()
 
 	local configID = getCurrentSelectedConfigID()
 	if not configID then
+		print("|cffff9900[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - configID is nil")
 		return L["NoLoadout"]
 	end
 
 	local cfg = getConfigInfo(configID)
 	if not cfg or not cfg.name or cfg.name == "" then
+		print("|cffff9900[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - cfg invalid")
 		return L["NoLoadout"]
 	end
 
+	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName returning name=", cfg.name)
 	return cfg.name
 end
 
