@@ -1,2 +1,1 @@
-Titan Panel plugin that shows your current specialization and active talent loadout, with right-click quick switching across saved loadouts (including cross-spec swaps).
-Lightweight, focused, and built for modern Retail talent loadout APIs.
+Titan Panel plugin by scootR that shows your current spec and active talent loadout on the Titan bar, with a right-click menu for quick switching across all saved loadouts — including automatic cross-spec switching. Built for WoW Retail (The War Within / Dragonflight).
