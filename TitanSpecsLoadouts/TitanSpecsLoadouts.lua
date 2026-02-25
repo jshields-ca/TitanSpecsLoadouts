@@ -544,8 +544,12 @@ local eventsTable = {
 		onRelevantUpdate()
 	end,
 	PLAYER_SPECIALIZATION_CHANGED = function()
-		addonTrackedConfigID = nil  -- spec changed; tracked ID is for old spec
-		onRelevantUpdate()
+		-- Clear tracked config for the old spec.
+		-- Do NOT call tryFinalizePending here: WoW will auto-load its default loadout
+		-- for the new spec AFTER this event fires, which would overwrite our LoadConfig.
+		-- Instead, finalize on PLAYER_TALENT_UPDATE which fires after WoW's auto-load settles.
+		addonTrackedConfigID = nil
+		updateButton()
 	end,
 	TRAIT_CONFIG_LIST_UPDATED = function()
 		onRelevantUpdate()
