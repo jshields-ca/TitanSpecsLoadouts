@@ -553,9 +553,10 @@ local eventsTable = {
 	ACTIVE_TALENT_GROUP_CHANGED = function()
 		-- WoW fires this for both real spec changes and same-spec loadout switches.
 		-- Only clear addonTrackedConfigID when the spec actually changed.
+		-- Guard against nil: if the spec API is unavailable mid-event, don't clear.
 		local currentSpec = getCurrentSpecInfo()
 		local currentSpecID = currentSpec and currentSpec.specID
-		if currentSpecID ~= lastKnownSpecID then
+		if currentSpecID and currentSpecID ~= lastKnownSpecID then
 			addonTrackedConfigID = nil
 			lastKnownSpecID = currentSpecID
 		end
@@ -567,9 +568,10 @@ local eventsTable = {
 		-- loadout switches don't wipe out the config we just set.
 		-- Do NOT call tryFinalizePending here: WoW auto-loads its default loadout for the new
 		-- spec AFTER this event fires; finalize on PLAYER_TALENT_UPDATE instead.
+		-- Guard against nil: if the spec API is unavailable mid-event, don't clear.
 		local currentSpec = getCurrentSpecInfo()
 		local currentSpecID = currentSpec and currentSpec.specID
-		if currentSpecID ~= lastKnownSpecID then
+		if currentSpecID and currentSpecID ~= lastKnownSpecID then
 			addonTrackedConfigID = nil
 			lastKnownSpecID = currentSpecID
 		end
