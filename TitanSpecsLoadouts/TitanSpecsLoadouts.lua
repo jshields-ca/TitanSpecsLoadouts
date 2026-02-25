@@ -166,7 +166,6 @@ local function getCurrentSelectedConfigID()
 
 	-- First priority: what we explicitly loaded (reliable, since the API doesn't update GetLastSelectedSavedConfigID)
 	if addonTrackedConfigID then
-		print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - using addonTrackedConfigID=", addonTrackedConfigID)
 		return addonTrackedConfigID
 	end
 
@@ -174,14 +173,12 @@ local function getCurrentSelectedConfigID()
 	local currentSpec = getCurrentSpecInfo()
 	if currentSpec then
 		local lastSelectedID = C_ClassTalents.GetLastSelectedSavedConfigID and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
-		print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - GetLastSelectedSavedConfigID() =", lastSelectedID)
 		if lastSelectedID and lastSelectedID > 0 then
 			return lastSelectedID
 		end
 	end
 
 	local activeID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
-	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentSelectedConfigID - GetActiveConfigID() =", activeID)
 	if activeID and activeID > 0 then
 		return activeID
 	end
@@ -259,20 +256,9 @@ local function getConfigInfo(configID)
 		return nil
 	end
 
-	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getConfigInfo querying configID=", configID)
-
 	-- C_ClassTalents.GetConfigInfo returns the user-defined config name (for saved loadouts)
 	if C_ClassTalents and C_ClassTalents.GetConfigInfo then
-		local cfg = C_ClassTalents.GetConfigInfo(configID)
-		if cfg then
-			print("|cff00ff00[Specs & Loadouts]|r DEBUG: C_ClassTalents.GetConfigInfo returned:")
-			for k, v in pairs(cfg) do
-				if k ~= "treeIDs" then  -- skip table field for clarity
-					print(string.format("|cff00ff00[Specs & Loadouts]|r   .%s = %s", k, tostring(v)))
-				end
-			end
-		end
-		return cfg
+		return C_ClassTalents.GetConfigInfo(configID)
 	end
 
 	-- Fall back to C_Traits if C_ClassTalents not available
@@ -313,19 +299,15 @@ local function getCurrentLoadoutName()
 	end
 
 	local configID = getCurrentSelectedConfigID()
-	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - got configID=", configID)
 	if not configID then
-		print("|cffff9900[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - configID is nil")
 		return L["NoLoadout"]
 	end
 
 	local cfg = getConfigInfo(configID)
 	if not cfg or not cfg.name or cfg.name == "" then
-		print("|cffff9900[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - cfg invalid")
 		return L["NoLoadout"]
 	end
 
-	print("|cff00ff00[Specs & Loadouts]|r DEBUG: getCurrentLoadoutName - returning name=", cfg.name)
 	return cfg.name
 end
 
@@ -350,8 +332,6 @@ local function loadConfigID(specID, configID)
 	local result = C_ClassTalents.LoadConfig(configID, true)
 	result = normalizeLoadConfigResult(result)
 
-	print("|cff00ff00[Specs & Loadouts]|r LoadConfig result:", result, "configID:", configID)
-
 	if Enum and Enum.LoadConfigResult then
 		if result == Enum.LoadConfigResult.Error then
 			showSwitchFailed()
@@ -362,7 +342,6 @@ local function loadConfigID(specID, configID)
 	-- LoadConfig succeeded (LoadInProgress or NoChangesNecessary both mean it applied/is applying)
 	-- Track the config we loaded so display updates correctly regardless of what the API returns
 	addonTrackedConfigID = configID
-	print("|cff00ff00[Specs & Loadouts]|r addonTrackedConfigID set to", configID)
 end
 
 local function tryFinalizePending()
@@ -391,27 +370,21 @@ local function activateLoadout(specID, configID)
 	end
 
 	configID = tonumber(configID) or configID
-	print("|cff00ff00[Specs & Loadouts]|r activateLoadout called: specID=", specID, "configID=", configID)
 
 	local current = getCurrentSpecInfo()
 	if current and current.specID == specID then
 		-- Check if this loadout is already active
 		local currentConfigID = getCurrentSelectedConfigID()
-		print("|cff00ff00[Specs & Loadouts]|r Same spec, currentConfigID=", currentConfigID, "target=", configID)
 		if currentConfigID and tonumber(currentConfigID) == tonumber(configID) then
 			-- Already active, no action needed
-			print("|cff00ff00[Specs & Loadouts]|r loadout already active, returning early")
 			return
 		end
 		-- Load the new loadout for current spec
-		print("|cff00ff00[Specs & Loadouts]|r Loading new config for current spec")
 		loadConfigID(specID, configID)
 		-- Force display update even if load is async/in-progress
 		updateButton()
 		return
 	end
-
-	print("|cff00ff00[Specs & Loadouts]|r Different spec, setting pending...")
 	pending.targetSpecID = specID
 	pending.targetConfigID = configID
 
@@ -541,7 +514,6 @@ local function seedTrackedConfigFromAPI()
 	local id = C_ClassTalents.GetLastSelectedSavedConfigID and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
 	if id and id > 0 then
 		addonTrackedConfigID = id
-		print("|cff00ff00[Specs & Loadouts]|r DEBUG: seeded addonTrackedConfigID from API =", id)
 	end
 end
 
