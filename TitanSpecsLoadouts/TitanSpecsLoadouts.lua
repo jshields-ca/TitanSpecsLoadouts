@@ -515,6 +515,10 @@ local function seedTrackedConfigFromAPI()
 		-- Already set by an addon-initiated switch; don't overwrite.
 		return
 	end
+	if pending.targetConfigID then
+		-- A cross-spec switch is in progress; don't seed with the auto-loaded default.
+		return
+	end
 	if not C_ClassTalents then
 		return
 	end
