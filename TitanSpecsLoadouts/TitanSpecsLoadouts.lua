@@ -2,12 +2,120 @@ local ADDON_NAME, L = ...
 local VERSION = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")
 
 local PluginID = "TITAN_SPECS_LOADOUTS"
+local DefaultIcon = "Interface\\Icons\\ability_dualwield"
+local TopMenuMinWidth = 170
+local SubMenuMinWidth = 170
+local LeftClickLabel = "|cff66ccffLClick|r"
+local RightClickLabel = "|cffff9900RClick|r"
 local frame = CreateFrame("Button", "TitanPanel" .. PluginID .. "Button", UIParent, "TitanPanelComboTemplate")
 
 local pending = {
 	targetSpecID = nil,
 	targetConfigID = nil,
 }
+
+local function getTitanHideMenuText()
+	if TITAN_PANEL_MENU_HIDE and TITAN_PANEL_MENU_HIDE ~= "" then
+		return TITAN_PANEL_MENU_HIDE
+	end
+
+	if LibStub then
+		local aceLocale = LibStub("AceLocale-3.0", true)
+		if aceLocale then
+			local titanLocale = aceLocale:GetLocale("Titan", true)
+			if titanLocale and titanLocale["TITAN_PANEL_MENU_HIDE"] then
+				return titanLocale["TITAN_PANEL_MENU_HIDE"]
+			end
+		end
+	end
+
+	return HIDE or "Hide"
+end
+
+local function apiGetNumSpecializations()
+	if C_SpecializationInfo and C_SpecializationInfo.GetNumSpecializations then
+		return C_SpecializationInfo.GetNumSpecializations() or 0
+	end
+	if GetNumSpecializations then
+		return GetNumSpecializations() or 0
+	end
+	return 0
+end
+
+local function apiGetSpecialization()
+	if C_SpecializationInfo and C_SpecializationInfo.GetSpecialization then
+		return C_SpecializationInfo.GetSpecialization()
+	end
+	if GetSpecialization then
+		return GetSpecialization()
+	end
+	return nil
+end
+
+local function apiGetSpecializationInfo(specIndex)
+	local id, name, description, icon
+
+	if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+		id, name, description, icon = C_SpecializationInfo.GetSpecializationInfo(specIndex)
+	end
+
+	if type(id) == "table" then
+		local info = id
+		id = info.specializationID or info.specID or info.id
+		name = info.name or name
+		description = info.description or description
+		icon = info.icon or info.iconID or icon
+	end
+
+	if type(id) ~= "number" and GetSpecializationInfo then
+		id, name, description, icon = GetSpecializationInfo(specIndex)
+	end
+
+	if type(id) ~= "number" then
+		return nil, nil, nil, nil
+	end
+
+	return id, name, description, icon
+end
+
+local function apiGetSpecializationInfoByID(specID)
+	if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfoByID then
+		local a, b, c, d = C_SpecializationInfo.GetSpecializationInfoByID(specID)
+		if type(a) == "table" then
+			local info = a
+			local id = info.specializationID or info.specID or specID
+			local name = info.name
+			local description = info.description
+			local icon = info.icon or info.iconID
+			return id, name, description, icon
+		end
+		if type(a) == "string" then
+			return specID, a, b, c
+		end
+		if type(b) == "string" then
+			return specID, b, c, d
+		end
+	end
+
+	if GetSpecializationInfoByID then
+		local id, name, description, icon = GetSpecializationInfoByID(specID)
+		return id or specID, name, description, icon
+	end
+
+	return specID, nil, nil, nil
+end
+
+local function apiSetSpecialization(specIndex)
+	if C_SpecializationInfo and C_SpecializationInfo.SetSpecialization then
+		C_SpecializationInfo.SetSpecialization(specIndex)
+		return true
+	end
+	if SetSpecialization then
+		SetSpecialization(specIndex)
+		return true
+	end
+	return false
+end
 
 local function showSwitchFailed()
 	if UIErrorsFrame and UIErrorsFrame.AddExternalErrorMessage then
@@ -23,16 +131,12 @@ local function normalizeLoadConfigResult(result)
 end
 
 local function getCurrentSpecInfo()
-	if not C_SpecializationInfo or not C_SpecializationInfo.GetSpecialization then
-		return nil
-	end
-
-	local specIndex = C_SpecializationInfo.GetSpecialization()
+	local specIndex = apiGetSpecialization()
 	if not specIndex then
 		return nil
 	end
 
-	local specID, name, description, icon = C_SpecializationInfo.GetSpecializationInfo(specIndex)
+	local specID, name, description, icon = apiGetSpecializationInfo(specIndex)
 	if not specID then
 		return nil
 	end
@@ -46,15 +150,77 @@ local function getCurrentSpecInfo()
 	}
 end
 
-local function getClassSpecIDs()
-	if not C_SpecializationInfo or not C_SpecializationInfo.GetNumSpecializations then
-		return {}
+local function getCurrentSpecID()
+	local currentSpec = getCurrentSpecInfo()
+	return currentSpec and currentSpec.specID or nil
+end
+
+local function getCurrentSelectedConfigID()
+	if not C_ClassTalents then
+		return nil
 	end
 
+	-- Prioritize GetActiveConfigID (what's truly loaded) over GetLastSelectedSavedConfigID (UI state)
+	local configID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+
+	if not configID or configID <= 0 then
+		local currentSpec = getCurrentSpecInfo()
+		if currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID then
+			configID = C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+		end
+	end
+
+	return tonumber(configID) or nil
+end
+
+local function updateDynamicIcon()
+	if not frame or not frame.registry then
+		return
+	end
+
+	local specInfo = getCurrentSpecInfo()
+	frame.registry.icon = (specInfo and specInfo.icon) or DefaultIcon
+end
+
+local function isLoadoutChecked(specID, configID)
+	local currentSpecID = getCurrentSpecID()
+	if not currentSpecID or specID ~= currentSpecID then
+		return false
+	end
+
+	local selectedConfigID = getCurrentSelectedConfigID()
+	return selectedConfigID and selectedConfigID == configID or false
+end
+
+local function openTalentsAndLoadouts()
+	if ToggleTalentFrame then
+		ToggleTalentFrame()
+		return
+	end
+
+	if PlayerSpellsMicroButton and PlayerSpellsMicroButton.Click then
+		PlayerSpellsMicroButton:Click()
+		return
+	end
+
+	if not PlayerSpellsFrame and PlayerSpellsFrame_LoadUI then
+		PlayerSpellsFrame_LoadUI()
+	end
+
+	if PlayerSpellsFrame then
+		if ShowUIPanel then
+			ShowUIPanel(PlayerSpellsFrame)
+		else
+			PlayerSpellsFrame:Show()
+		end
+	end
+end
+
+local function getClassSpecIDs()
 	local specIDs = {}
-	local numSpecs = C_SpecializationInfo.GetNumSpecializations() or 0
+	local numSpecs = apiGetNumSpecializations()
 	for specIndex = 1, numSpecs do
-		local specID = C_SpecializationInfo.GetSpecializationInfo(specIndex)
+		local specID = apiGetSpecializationInfo(specIndex)
 		if specID then
 			tinsert(specIDs, specID)
 		end
@@ -64,11 +230,7 @@ local function getClassSpecIDs()
 end
 
 local function getSpecName(specID)
-	if not C_SpecializationInfo or not C_SpecializationInfo.GetSpecializationInfoByID then
-		return "Spec " .. tostring(specID)
-	end
-
-	local _, specName = C_SpecializationInfo.GetSpecializationInfoByID(specID)
+	local _, specName = apiGetSpecializationInfoByID(specID)
 	if not specName or specName == "" then
 		return "Spec " .. tostring(specID)
 	end
@@ -77,11 +239,21 @@ local function getSpecName(specID)
 end
 
 local function getConfigInfo(configID)
-	if not configID or not C_Traits or not C_Traits.GetConfigInfo then
+	if not configID then
 		return nil
 	end
 
-	return C_Traits.GetConfigInfo(configID)
+	-- C_ClassTalents.GetConfigInfo returns the user-defined config name (for saved loadouts)
+	if C_ClassTalents and C_ClassTalents.GetConfigInfo then
+		return C_ClassTalents.GetConfigInfo(configID)
+	end
+
+	-- Fall back to C_Traits if C_ClassTalents not available
+	if C_Traits and C_Traits.GetConfigInfo then
+		return C_Traits.GetConfigInfo(configID)
+	end
+
+	return nil
 end
 
 local function getSavedLoadoutsBySpecID(specID)
@@ -109,16 +281,16 @@ local function getSavedLoadoutsBySpecID(specID)
 end
 
 local function getCurrentLoadoutName()
-	if not C_ClassTalents or not C_ClassTalents.GetActiveConfigID then
+	if not C_ClassTalents then
 		return L["NoLoadout"]
 	end
 
-	local activeConfigID = C_ClassTalents.GetActiveConfigID()
-	if not activeConfigID then
+	local configID = getCurrentSelectedConfigID()
+	if not configID then
 		return L["NoLoadout"]
 	end
 
-	local cfg = getConfigInfo(activeConfigID)
+	local cfg = getConfigInfo(configID)
 	if not cfg or not cfg.name or cfg.name == "" then
 		return L["NoLoadout"]
 	end
@@ -128,6 +300,7 @@ end
 
 local function updateButton()
 	if frame and frame.registry and frame.registry.id then
+		updateDynamicIcon()
 		TitanPanelButton_UpdateButton(frame.registry.id)
 	end
 end
@@ -137,7 +310,7 @@ local function clearPending()
 	pending.targetConfigID = nil
 end
 
-local function loadConfigID(configID)
+local function loadConfigID(specID, configID)
 	if not C_ClassTalents or not C_ClassTalents.LoadConfig then
 		showSwitchFailed()
 		return
@@ -146,8 +319,25 @@ local function loadConfigID(configID)
 	local result = C_ClassTalents.LoadConfig(configID, true)
 	result = normalizeLoadConfigResult(result)
 
-	if Enum and Enum.LoadConfigResult and result == Enum.LoadConfigResult.Error then
-		showSwitchFailed()
+	-- DEBUG: Print result to see what's being returned
+	print("|cff00ff00[Specs & Loadouts]|r LoadConfig result:", result, "configID:", configID)
+
+	if Enum and Enum.LoadConfigResult then
+		if result == Enum.LoadConfigResult.Error then
+			showSwitchFailed()
+			return
+		elseif result == Enum.LoadConfigResult.LoadInProgress then
+			print("|cffff9900[Specs & Loadouts]|r Load in progress, will retry...")
+			return
+		elseif result == Enum.LoadConfigResult.NoChangesNecessary then
+			-- Config is already active or no actual changes; still update UI
+			print("|cff00ff00[Specs & Loadouts]|r Config already active, updating UI...")
+		end
+	end
+
+	-- Update last selected so UI state stays in sync
+	if C_ClassTalents.UpdateLastSelectedSavedConfigID then
+		C_ClassTalents.UpdateLastSelectedSavedConfigID(configID)
 	end
 end
 
@@ -164,9 +354,10 @@ local function tryFinalizePending()
 		return
 	end
 
+	local specID = pending.targetSpecID
 	local configID = pending.targetConfigID
 	clearPending()
-	loadConfigID(configID)
+	loadConfigID(specID, configID)
 	updateButton()
 end
 
@@ -175,9 +366,19 @@ local function activateLoadout(specID, configID)
 		return
 	end
 
+	configID = tonumber(configID) or configID
+
 	local current = getCurrentSpecInfo()
 	if current and current.specID == specID then
-		loadConfigID(configID)
+		-- Check if this loadout is already active
+		local currentConfigID = getCurrentSelectedConfigID()
+		if currentConfigID and tonumber(currentConfigID) == tonumber(configID) then
+			-- Already active, no action needed
+			return
+		end
+		-- Load the new loadout for current spec
+		loadConfigID(specID, configID)
+		-- Force display update even if load is async/in-progress
 		updateButton()
 		return
 	end
@@ -185,18 +386,18 @@ local function activateLoadout(specID, configID)
 	pending.targetSpecID = specID
 	pending.targetConfigID = configID
 
-	if not C_SpecializationInfo or not C_SpecializationInfo.SetSpecialization then
-		loadConfigID(configID)
+	if not C_SpecializationInfo and not SetSpecialization then
+		loadConfigID(specID, configID)
 		clearPending()
 		updateButton()
 		return
 	end
 
-	local numSpecs = C_SpecializationInfo.GetNumSpecializations and (C_SpecializationInfo.GetNumSpecializations() or 0) or 0
+	local numSpecs = apiGetNumSpecializations()
 	for specIndex = 1, numSpecs do
-		local candidateSpecID = C_SpecializationInfo.GetSpecializationInfo(specIndex)
+		local candidateSpecID = apiGetSpecializationInfo(specIndex)
 		if candidateSpecID == specID then
-			C_SpecializationInfo.SetSpecialization(specIndex)
+			apiSetSpecialization(specIndex)
 			return
 		end
 	end
@@ -211,14 +412,19 @@ local function makeLoadoutButton(specID, configID)
 	local cfg = getConfigInfo(configID)
 	local cfgName = (cfg and cfg.name and cfg.name ~= "") and cfg.name or ("Loadout " .. tostring(configID))
 
+	local isChecked = isLoadoutChecked(specID, configID)
+	if isChecked then
+		cfgName = string.format("|cff00ff00[%s]|r %s", L["Current"], cfgName)
+	end
+
 	info.text = cfgName
 	info.func = function()
 		activateLoadout(specID, configID)
 	end
 	info.keepShownOnClick = false
+	info.minWidth = SubMenuMinWidth
 
-	local activeConfigID = C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID() or nil
-	info.checked = activeConfigID and activeConfigID == configID
+	info.checked = isChecked
 
 	L_UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
 end
@@ -234,9 +440,6 @@ end
 local function prepareMenu(_, id)
 	if UIDROPDOWNMENU_MENU_LEVEL == 1 then
 		TitanPanelRightClickMenu_AddTitle(TitanPlugins[id].menuText)
-		TitanPanelRightClickMenu_AddToggleIcon(id)
-		TitanPanelRightClickMenu_AddToggleLabelText(id)
-		TitanPanelRightClickMenu_AddToggleRightSide(id)
 		TitanPanelRightClickMenu_AddSpacer()
 
 		local specIDs = getClassSpecIDs()
@@ -246,12 +449,13 @@ local function prepareMenu(_, id)
 			info.hasArrow = true
 			info.notCheckable = true
 			info.keepShownOnClick = true
+			info.minWidth = TopMenuMinWidth
 			info.value = specID
 			L_UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
 		end
 
 		TitanPanelRightClickMenu_AddSpacer()
-		TitanPanelRightClickMenu_AddCommand(TITAN_PANEL_MENU_HIDE, id, TITAN_PANEL_MENU_FUNC_HIDE)
+		TitanPanelRightClickMenu_AddCommand(getTitanHideMenuText(), id, TITAN_PANEL_MENU_FUNC_HIDE)
 		return
 	end
 
@@ -278,14 +482,16 @@ local function getButtonText()
 	local specInfo = getCurrentSpecInfo()
 	local specName = (specInfo and specInfo.name) or L["NoSpec"]
 	local loadoutName = getCurrentLoadoutName()
-	return L["Label"] .. ": ", string.format("%s - %s", specName, loadoutName)
+	local coloredSpec = string.format("|cff66ccff%s|r", specName)
+	local coloredLoadout = string.format("|cffffff00%s|r", loadoutName)
+	return L["Label"] .. ": ", string.format("%s - %s", coloredSpec, coloredLoadout)
 end
 
 local function getTooltipText()
 	local specInfo = getCurrentSpecInfo()
 	local specName = (specInfo and specInfo.name) or L["NoSpec"]
 	local loadoutName = getCurrentLoadoutName()
-	return string.format("%s: %s\nLoadout: %s\n\n%s", L["Label"], specName, loadoutName, L["Hint"])
+	return string.format("\n|cff66ccff%s:|r %s\n|cffffff00Loadout:|r %s\n\n%s - %s\n%s - %s", L["Label"], specName, loadoutName, LeftClickLabel, L["HintLeft"], RightClickLabel, L["HintRight"])
 end
 
 local function onRelevantUpdate()
@@ -321,6 +527,14 @@ frame:SetScript("OnEvent", function(self, event, ...)
 	end
 end)
 
+frame:SetScript("OnClick", function(self, button, ...)
+	if button == "LeftButton" then
+		openTalentsAndLoadouts()
+	end
+
+	TitanPanelButton_OnClick(self, button, ...)
+end)
+
 function frame:ADDON_LOADED(addon)
 	if addon ~= ADDON_NAME then
 		return
@@ -335,16 +549,23 @@ function frame:ADDON_LOADED(addon)
 		buttonTextFunction = "TitanPanelButton_Get" .. PluginID .. "ButtonText",
 		tooltipTitle = L["Name"],
 		tooltipTextFunction = "TitanPanelButton_Get" .. PluginID .. "TooltipText",
-		icon = "Interface\\Icons\\ability_dualwield",
+		icon = DefaultIcon,
 		iconWidth = 16,
 		category = "Information",
 		version = VERSION,
+		controlVariables = {
+			ShowIcon = true,
+			ShowLabelText = true,
+			DisplayOnRightSide = true,
+		},
 		savedVariables = {
 			ShowIcon = 1,
 			ShowLabelText = 1,
 			DisplayOnRightSide = false,
 		},
 	}
+
+	updateDynamicIcon()
 end
 
 frame:RegisterEvent("ADDON_LOADED")
