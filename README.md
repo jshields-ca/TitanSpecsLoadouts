@@ -4,6 +4,8 @@ A Titan Panel plugin for World of Warcraft that shows your current specializatio
 
 Created by **scootR** — [scootr.ca](https://scootr.ca) · [BlueSky](https://bsky.app/profile/scootr.ca) · [GitHub](https://github.com/jshields-ca/TitanSpecsLoadouts)
 
+CurseForge - [CurseForge](https://www.curseforge.com/wow/addons/titan-panel-specs-loadouts)
+
 ---
 
 ## Features
