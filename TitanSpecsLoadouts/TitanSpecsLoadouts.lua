@@ -523,6 +523,28 @@ local function getTooltipText()
 	return string.format("\n|cff66ccff%s:|r %s\n|cffffff00Loadout:|r %s\n\n%s - %s\n%s - %s", L["Label"], specName, loadoutName, LeftClickLabel, L["HintLeft"], RightClickLabel, L["HintRight"])
 end
 
+-- Seed addonTrackedConfigID from the WoW API when it is nil.
+-- Only called from PLAYER_TALENT_UPDATE, which fires after talents are
+-- fully settled (on login/reload and after any spec or loadout change).
+local function seedTrackedConfigFromAPI()
+	if addonTrackedConfigID ~= nil then
+		-- Already set by an addon-initiated switch; don't overwrite.
+		return
+	end
+	if not C_ClassTalents then
+		return
+	end
+	local currentSpec = getCurrentSpecInfo()
+	if not currentSpec then
+		return
+	end
+	local id = C_ClassTalents.GetLastSelectedSavedConfigID and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+	if id and id > 0 then
+		addonTrackedConfigID = id
+		print("|cff00ff00[Specs & Loadouts]|r DEBUG: seeded addonTrackedConfigID from API =", id)
+	end
+end
+
 local function onRelevantUpdate()
 	tryFinalizePending()
 	updateButton()
@@ -531,11 +553,11 @@ end
 local eventsTable = {
 	PLAYER_ENTERING_WORLD = function(self)
 		self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-		addonTrackedConfigID = nil  -- read fresh from API on login
+		addonTrackedConfigID = nil  -- clear so PLAYER_TALENT_UPDATE seeds from API
 		onRelevantUpdate()
 	end,
 	ACTIVE_TALENT_GROUP_CHANGED = function()
-		addonTrackedConfigID = nil  -- spec changed externally; re-read from API
+		addonTrackedConfigID = nil  -- spec changed externally; re-seed on next PLAYER_TALENT_UPDATE
 		onRelevantUpdate()
 	end,
 	PLAYER_SPECIALIZATION_CHANGED = function()
@@ -549,6 +571,9 @@ local eventsTable = {
 		onRelevantUpdate()
 	end,
 	PLAYER_TALENT_UPDATE = function()
+		-- Seed from API if not set by an addon-initiated switch.
+		-- GetLastSelectedSavedConfigID is reliable by the time this event fires.
+		seedTrackedConfigFromAPI()
 		onRelevantUpdate()
 	end,
 }
