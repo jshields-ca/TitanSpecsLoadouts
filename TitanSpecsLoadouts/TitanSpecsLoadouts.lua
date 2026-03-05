@@ -412,10 +412,10 @@ local function tryFinalizePending()
 	end
 
 	-- Diagnostics: inspect the target config and current game state before calling
+	-- (currentSpec was already fetched above for the spec-mismatch guard; reuse it)
 	local activeConfigID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
 	local targetCfg = getConfigInfo(pending.targetConfigID)
 	local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
-	local currentSpec = getCurrentSpecInfo()
 	local lastSelectedID = currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID
 		and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
 	dbg("tryFinalizePending: pre-call — retry#", tostring(pending.retryCount),
