@@ -33,8 +33,7 @@ local lastKnownSpecID = nil
 local specSettling = false
 
 -- Set to true to print diagnostic info to the chat frame.
--- Disable once root cause is identified.
-local DEBUG_SPEC_LOAD = true
+local DEBUG_SPEC_LOAD = false
 local function dbg(...)
 	if DEBUG_SPEC_LOAD then
 		print("|cffff9900[TitanSpecLoad]|r", ...)
@@ -411,21 +410,23 @@ local function tryFinalizePending()
 		return
 	end
 
-	-- Diagnostics: inspect the target config and current game state before calling
-	-- (currentSpec was already fetched above for the spec-mismatch guard; reuse it)
-	local activeConfigID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
-	local targetCfg = getConfigInfo(pending.targetConfigID)
-	local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
-	local lastSelectedID = currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID
-		and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
-	dbg("tryFinalizePending: pre-call — retry#", tostring(pending.retryCount),
-		"targetConfigID=", tostring(pending.targetConfigID),
-		"name=", tostring(targetCfg and targetCfg.name),
-		"type=", tostring(targetCfg and targetCfg.type),
-		"modifiedSpecID=", tostring(targetCfg and targetCfg.modifiedSpecID),
-		"activeSlotID=", tostring(activeConfigID),
-		"lastSelectedSavedID=", tostring(lastSelectedID),
-		"inCombat=", tostring(inCombat))
+	-- Diagnostic-only pre-call snapshot (guarded: these API calls are skipped when
+	-- DEBUG_SPEC_LOAD is false so they don't add overhead on every retry in production)
+	if DEBUG_SPEC_LOAD then
+		local activeConfigID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+		local targetCfg = getConfigInfo(pending.targetConfigID)
+		local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
+		local lastSelectedID = currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID
+			and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+		dbg("tryFinalizePending: pre-call — retry#", tostring(pending.retryCount),
+			"targetConfigID=", tostring(pending.targetConfigID),
+			"name=", tostring(targetCfg and targetCfg.name),
+			"type=", tostring(targetCfg and targetCfg.type),
+			"modifiedSpecID=", tostring(targetCfg and targetCfg.modifiedSpecID),
+			"activeSlotID=", tostring(activeConfigID),
+			"lastSelectedSavedID=", tostring(lastSelectedID),
+			"inCombat=", tostring(inCombat))
+	end
 
 	local result = C_ClassTalents.LoadConfig(pending.targetConfigID, true)
 	result = normalizeLoadConfigResult(result)
