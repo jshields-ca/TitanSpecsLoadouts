@@ -23,6 +23,12 @@ local addonTrackedConfigID = nil
 -- (WoW fires that event for both).
 local lastKnownSpecID = nil
 
+-- True from ACTIVE_TALENT_GROUP_CHANGED until PLAYER_TALENT_UPDATE.
+-- During this window WoW is still auto-loading its default loadout for the
+-- new spec, so tryFinalizePending must not call LoadConfig yet or WoW's
+-- engine auto-load will overwrite it immediately afterward.
+local specSettling = false
+
 local function getTitanHideMenuText()
 	if TITAN_PANEL_MENU_HIDE and TITAN_PANEL_MENU_HIDE ~= "" then
 		return TITAN_PANEL_MENU_HIDE
@@ -303,6 +309,13 @@ local function getCurrentLoadoutName()
 		return L["NoLoadout"]
 	end
 
+	-- While a cross-spec loadout switch is pending, the addon has not yet called
+	-- LoadConfig (specSettling is blocking it). Show a loading indicator so the
+	-- user knows the switch is in progress rather than seeing a stale loadout name.
+	if pending.targetConfigID then
+		return L["Loading"]
+	end
+
 	local configID = getCurrentSelectedConfigID()
 	if not configID then
 		return L["NoLoadout"]
@@ -350,6 +363,14 @@ local function loadConfigID(specID, configID)
 end
 
 local function tryFinalizePending()
+	-- WoW auto-loads its default loadout for the new spec AFTER
+	-- ACTIVE_TALENT_GROUP_CHANGED but BEFORE PLAYER_TALENT_UPDATE.
+	-- Block LoadConfig until that auto-load is complete so our chosen
+	-- loadout is not overwritten by WoW's engine default.
+	if specSettling then
+		return
+	end
+
 	if not pending.targetConfigID then
 		return
 	end
@@ -551,11 +572,12 @@ local eventsTable = {
 		local spec = getCurrentSpecInfo()
 		lastKnownSpecID = spec and spec.specID
 		addonTrackedConfigID = nil  -- clear so PLAYER_TALENT_UPDATE seeds from API
+		specSettling = false        -- ensure clean state on world enter
 		onRelevantUpdate()
 	end,
 	ACTIVE_TALENT_GROUP_CHANGED = function()
-		-- WoW fires this for both real spec changes and same-spec loadout switches.
-		-- Only clear addonTrackedConfigID when the spec actually changed.
+		-- WoW fires this when the active talent group (spec slot) changes.
+		-- Clear tracked config only when the spec actually changed.
 		-- Guard against nil: if the spec API is unavailable mid-event, don't clear.
 		local currentSpec = getCurrentSpecInfo()
 		local currentSpecID = currentSpec and currentSpec.specID
@@ -563,7 +585,12 @@ local eventsTable = {
 			addonTrackedConfigID = nil
 			lastKnownSpecID = currentSpecID
 		end
-		onRelevantUpdate()
+		-- Mark spec as settling. WoW will auto-load its default loadout for the new
+		-- spec between now and PLAYER_TALENT_UPDATE. Calling LoadConfig here would
+		-- be overwritten by that engine auto-load, so we block it via specSettling
+		-- and wait for PLAYER_TALENT_UPDATE to confirm the spec is fully settled.
+		specSettling = true
+		updateButton()
 	end,
 	PLAYER_SPECIALIZATION_CHANGED = function()
 		-- WoW fires this event for BOTH real spec changes AND same-spec loadout switches.
@@ -577,6 +604,7 @@ local eventsTable = {
 		if currentSpecID and currentSpecID ~= lastKnownSpecID then
 			addonTrackedConfigID = nil
 			lastKnownSpecID = currentSpecID
+			specSettling = true  -- belt-and-suspenders: keep settling blocked
 		end
 		updateButton()
 	end,
@@ -590,6 +618,11 @@ local eventsTable = {
 		-- Keep lastKnownSpecID current so PLAYER_SPECIALIZATION_CHANGED comparisons are accurate.
 		local spec = getCurrentSpecInfo()
 		if spec then lastKnownSpecID = spec.specID end
+		-- Talents are now fully settled: WoW has completed its post-spec-switch auto-load
+		-- of the default loadout. It is now safe to call LoadConfig for our chosen loadout
+		-- without it being overwritten by the engine. Clear specSettling before
+		-- tryFinalizePending so the guard inside it allows the load to proceed.
+		specSettling = false
 		-- tryFinalizePending runs first: ensures addonTrackedConfigID is set to our
 		-- target before seedTrackedConfigFromAPI can overwrite it with the default.
 		onRelevantUpdate()
