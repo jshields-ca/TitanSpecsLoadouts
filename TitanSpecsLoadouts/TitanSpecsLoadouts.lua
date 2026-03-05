@@ -13,6 +13,7 @@ local pending = {
 	targetSpecID = nil,
 	targetConfigID = nil,
 	retryCount = 0,
+	firstErrorTime = nil,  -- GetTime() when first LoadConfig Error occurred (drives retry abort)
 }
 
 -- Track the config we loaded ourselves, since GetLastSelectedSavedConfigID
@@ -356,6 +357,7 @@ local function clearPending()
 	pending.targetSpecID = nil
 	pending.targetConfigID = nil
 	pending.retryCount = 0
+	pending.firstErrorTime = nil
 end
 
 local function loadConfigID(specID, configID)
@@ -447,17 +449,39 @@ local function tryFinalizePending()
 				") is same as target or nil — cannot isolate; target-specific vs global unknown")
 		end
 
-		-- Retry with back-off; show failure to the user after too many attempts
+		-- Time-based retry: WoW holds a talent-change lock during/after a spec switch
+		-- (same window as the spec-switch cooldown, empirically 30+ seconds).
+		-- We retry with growing intervals rather than a fixed count so we outlast the lock.
+		-- Event-triggered calls (PLAYER_TALENT_UPDATE, TRAIT_CONFIG_UPDATED) also call
+		-- tryFinalizePending for free; this timer is the backstop between events.
+		if not pending.firstErrorTime then
+			pending.firstErrorTime = GetTime()
+		end
+		local elapsed = GetTime() - pending.firstErrorTime
 		pending.retryCount = pending.retryCount + 1
-		dbg("tryFinalizePending: LoadConfig returned Error — retry #", pending.retryCount)
-		if pending.retryCount <= 5 then
-			C_Timer.After(0.5, function()
+		dbg("tryFinalizePending: LoadConfig returned Error — retry #", pending.retryCount,
+			"elapsed=", string.format("%.1f", elapsed), "s since first error")
+
+		local maxWindow = 35  -- seconds; covers ~30s spec-switch cooldown plus margin
+
+		if elapsed < maxWindow then
+			-- Interval grows with elapsed time: fast early, slow later
+			local interval
+			if elapsed < 5 then
+				interval = 1    -- every 1s for first 5s
+			elseif elapsed < 15 then
+				interval = 3    -- every 3s from 5-15s
+			else
+				interval = 5    -- every 5s from 15-35s
+			end
+			dbg("tryFinalizePending: scheduling retry in", interval, "s")
+			C_Timer.After(interval, function()
 				if pending.targetConfigID then
 					tryFinalizePending()
 				end
 			end)
 		else
-			dbg("tryFinalizePending: max retries (5) reached — aborting")
+			dbg("tryFinalizePending: 35s timeout reached — aborting")
 			showSwitchFailed()
 			clearPending()
 			updateButton()
