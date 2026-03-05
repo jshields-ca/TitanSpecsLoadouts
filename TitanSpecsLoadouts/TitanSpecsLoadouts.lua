@@ -411,12 +411,16 @@ local function tryFinalizePending()
 	local activeConfigID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
 	local targetCfg = getConfigInfo(pending.targetConfigID)
 	local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
-	dbg("tryFinalizePending: pre-call —",
+	local currentSpec = getCurrentSpecInfo()
+	local lastSelectedID = currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID
+		and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+	dbg("tryFinalizePending: pre-call — retry#", tostring(pending.retryCount),
 		"targetConfigID=", tostring(pending.targetConfigID),
 		"name=", tostring(targetCfg and targetCfg.name),
 		"type=", tostring(targetCfg and targetCfg.type),
 		"modifiedSpecID=", tostring(targetCfg and targetCfg.modifiedSpecID),
-		"activeConfigID=", tostring(activeConfigID),
+		"activeSlotID=", tostring(activeConfigID),
+		"lastSelectedSavedID=", tostring(lastSelectedID),
 		"inCombat=", tostring(inCombat))
 
 	local result = C_ClassTalents.LoadConfig(pending.targetConfigID, true)
@@ -426,26 +430,21 @@ local function tryFinalizePending()
 
 	if Enum and Enum.LoadConfigResult and result == Enum.LoadConfigResult.Error then
 		-- DECISIVE TEST: try LoadConfig on the ALREADY-AUTO-LOADED saved config.
-		-- GetLastSelectedSavedConfigID returns a real saved-loadout ID (same namespace as
-		-- our targetConfigID), unlike GetActiveConfigID() which returns a slot ID that
+		-- lastSelectedID (from pre-call section) is a real saved-loadout ID — same namespace
+		-- as our targetConfigID — unlike GetActiveConfigID() which returns a slot ID that
 		-- LoadConfig does not accept. This tests if LoadConfig works at all right now.
-		-- Expected: NoChangesNecessary (2) or LoadInProgress (1) if LoadConfig works for
-		-- the auto-loaded config → failure is SPECIFIC to targetConfigID (hero-spec issue?).
-		-- Error (0) → LoadConfig is globally broken at this moment (timing/cooldown issue).
-		local currentSpec = getCurrentSpecInfo()
-		if currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID then
-			local autoLoadedSavedID = C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
-			dbg("tryFinalizePending: GetLastSelectedSavedConfigID(", tostring(currentSpec.specID), ")=",
-				tostring(autoLoadedSavedID))
-			if autoLoadedSavedID and autoLoadedSavedID > 0 and autoLoadedSavedID ~= pending.targetConfigID then
-				local savedTest = C_ClassTalents.LoadConfig(autoLoadedSavedID, false)
-				savedTest = normalizeLoadConfigResult(savedTest)
-				dbg("tryFinalizePending: LoadConfig(autoLoadedSavedID=", tostring(autoLoadedSavedID),
-					", false) result=", tostring(savedTest),
-					"(2=NoChangesNecessary → problem is targetConfigID-specific; 0=Error → global failure)")
-			else
-				dbg("tryFinalizePending: autoLoadedSavedID (", tostring(autoLoadedSavedID), ") is same as target or nil — cannot isolate")
-			end
+		-- NoChangesNecessary (2) or LoadInProgress (1) → LoadConfig works for saved configs
+		--   → failure is SPECIFIC to our targetConfigID (hero-spec restriction?)
+		-- Error (0) → LoadConfig is globally broken right now (timing/cooldown issue)
+		if lastSelectedID and lastSelectedID > 0 and lastSelectedID ~= pending.targetConfigID then
+			local savedTest = C_ClassTalents.LoadConfig(lastSelectedID, false)
+			savedTest = normalizeLoadConfigResult(savedTest)
+			dbg("tryFinalizePending: LoadConfig(lastSelectedSavedID=", tostring(lastSelectedID),
+				", false) result=", tostring(savedTest),
+				"(2=NoChangesNecessary → target-specific failure; 0=Error → global failure)")
+		else
+			dbg("tryFinalizePending: lastSelectedSavedID (", tostring(lastSelectedID),
+				") is same as target or nil — cannot isolate; target-specific vs global unknown")
 		end
 
 		-- Retry with back-off; show failure to the user after too many attempts
