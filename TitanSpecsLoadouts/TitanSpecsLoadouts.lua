@@ -425,15 +425,27 @@ local function tryFinalizePending()
 		"Error enum=", tostring(Enum and Enum.LoadConfigResult and Enum.LoadConfigResult.Error))
 
 	if Enum and Enum.LoadConfigResult and result == Enum.LoadConfigResult.Error then
-		-- Decisive test: try loading the ALREADY-ACTIVE config to find out if
-		-- LoadConfig is globally broken right now, or only for our targetConfigID.
-		-- Expected: NoChangesNecessary (2) if LoadConfig works at all; Error (0) if broken globally.
-		if activeConfigID then
-			local activeTest = C_ClassTalents.LoadConfig(activeConfigID, false)
-			activeTest = normalizeLoadConfigResult(activeTest)
-			dbg("tryFinalizePending: LoadConfig(activeConfigID=", tostring(activeConfigID),
-				", false) result=", tostring(activeTest),
-				"(2=NoChangesNecessary means LoadConfig works for active config)")
+		-- DECISIVE TEST: try LoadConfig on the ALREADY-AUTO-LOADED saved config.
+		-- GetLastSelectedSavedConfigID returns a real saved-loadout ID (same namespace as
+		-- our targetConfigID), unlike GetActiveConfigID() which returns a slot ID that
+		-- LoadConfig does not accept. This tests if LoadConfig works at all right now.
+		-- Expected: NoChangesNecessary (2) or LoadInProgress (1) if LoadConfig works for
+		-- the auto-loaded config → failure is SPECIFIC to targetConfigID (hero-spec issue?).
+		-- Error (0) → LoadConfig is globally broken at this moment (timing/cooldown issue).
+		local currentSpec = getCurrentSpecInfo()
+		if currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID then
+			local autoLoadedSavedID = C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+			dbg("tryFinalizePending: GetLastSelectedSavedConfigID(", tostring(currentSpec.specID), ")=",
+				tostring(autoLoadedSavedID))
+			if autoLoadedSavedID and autoLoadedSavedID > 0 and autoLoadedSavedID ~= pending.targetConfigID then
+				local savedTest = C_ClassTalents.LoadConfig(autoLoadedSavedID, false)
+				savedTest = normalizeLoadConfigResult(savedTest)
+				dbg("tryFinalizePending: LoadConfig(autoLoadedSavedID=", tostring(autoLoadedSavedID),
+					", false) result=", tostring(savedTest),
+					"(2=NoChangesNecessary → problem is targetConfigID-specific; 0=Error → global failure)")
+			else
+				dbg("tryFinalizePending: autoLoadedSavedID (", tostring(autoLoadedSavedID), ") is same as target or nil — cannot isolate")
+			end
 		end
 
 		-- Retry with back-off; show failure to the user after too many attempts
