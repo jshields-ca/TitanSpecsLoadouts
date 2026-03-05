@@ -13,7 +13,8 @@ local pending = {
 	targetSpecID = nil,
 	targetConfigID = nil,
 	retryCount = 0,
-	firstErrorTime = nil,  -- GetTime() when first LoadConfig Error occurred (drives retry abort)
+	firstErrorTime = nil,   -- GetTime() when first LoadConfig Error occurred (drives retry abort)
+	timerScheduled = false, -- true while a C_Timer retry is outstanding (prevents timer explosion)
 }
 
 -- Track the config we loaded ourselves, since GetLastSelectedSavedConfigID
@@ -358,6 +359,7 @@ local function clearPending()
 	pending.targetConfigID = nil
 	pending.retryCount = 0
 	pending.firstErrorTime = nil
+	pending.timerScheduled = false
 end
 
 local function loadConfigID(specID, configID)
@@ -431,55 +433,46 @@ local function tryFinalizePending()
 		"Error enum=", tostring(Enum and Enum.LoadConfigResult and Enum.LoadConfigResult.Error))
 
 	if Enum and Enum.LoadConfigResult and result == Enum.LoadConfigResult.Error then
-		-- DECISIVE TEST: try LoadConfig on the ALREADY-AUTO-LOADED saved config.
-		-- lastSelectedID (from pre-call section) is a real saved-loadout ID — same namespace
-		-- as our targetConfigID — unlike GetActiveConfigID() which returns a slot ID that
-		-- LoadConfig does not accept. This tests if LoadConfig works at all right now.
-		-- NoChangesNecessary (2) or LoadInProgress (1) → LoadConfig works for saved configs
-		--   → failure is SPECIFIC to our targetConfigID (hero-spec restriction?)
-		-- Error (0) → LoadConfig is globally broken right now (timing/cooldown issue)
-		if lastSelectedID and lastSelectedID > 0 and lastSelectedID ~= pending.targetConfigID then
-			local savedTest = C_ClassTalents.LoadConfig(lastSelectedID, false)
-			savedTest = normalizeLoadConfigResult(savedTest)
-			dbg("tryFinalizePending: LoadConfig(lastSelectedSavedID=", tostring(lastSelectedID),
-				", false) result=", tostring(savedTest),
-				"(2=NoChangesNecessary → target-specific failure; 0=Error → global failure)")
-		else
-			dbg("tryFinalizePending: lastSelectedSavedID (", tostring(lastSelectedID),
-				") is same as target or nil — cannot isolate; target-specific vs global unknown")
-		end
-
-		-- Time-based retry: WoW holds a talent-change lock during/after a spec switch
-		-- (same window as the spec-switch cooldown, empirically 30+ seconds).
-		-- We retry with growing intervals rather than a fixed count so we outlast the lock.
-		-- Event-triggered calls (PLAYER_TALENT_UPDATE, TRAIT_CONFIG_UPDATED) also call
-		-- tryFinalizePending for free; this timer is the backstop between events.
+		-- WoW holds a global talent-change lock during/after a spec switch.
+		-- All LoadConfig calls (for any saved config) return Error during this window.
+		-- The lock lifts ~1s after the final TRAIT_CONFIG_UPDATED event.
+		-- We retry with growing intervals to outlast the lock while minimising the
+		-- visible gap between WoW's auto-load (default config) and our target.
+		--
+		-- timerScheduled prevents multiple concurrent event-triggered failures from
+		-- each spawning their own 0.25s timer chain (which would grow exponentially).
+		-- Event-triggered calls still fire for free; the timer is only the backstop.
 		if not pending.firstErrorTime then
 			pending.firstErrorTime = GetTime()
 		end
 		local elapsed = GetTime() - pending.firstErrorTime
 		pending.retryCount = pending.retryCount + 1
 		dbg("tryFinalizePending: LoadConfig returned Error — retry #", pending.retryCount,
-			"elapsed=", string.format("%.1f", elapsed), "s since first error")
+			"elapsed=", string.format("%.2f", elapsed), "s")
 
 		local maxWindow = 35  -- seconds; covers ~30s spec-switch cooldown plus margin
 
 		if elapsed < maxWindow then
-			-- Interval grows with elapsed time: fast early, slow later
-			local interval
-			if elapsed < 5 then
-				interval = 1    -- every 1s for first 5s
-			elseif elapsed < 15 then
-				interval = 3    -- every 3s from 5-15s
-			else
-				interval = 5    -- every 5s from 15-35s
-			end
-			dbg("tryFinalizePending: scheduling retry in", interval, "s")
-			C_Timer.After(interval, function()
-				if pending.targetConfigID then
-					tryFinalizePending()
+			if not pending.timerScheduled then
+				-- Interval grows with elapsed: fast early to minimise the 2-load gap,
+				-- slower later to avoid spamming the API during a long cooldown.
+				local interval
+				if elapsed < 5 then
+					interval = 0.25  -- poll every 0.25s for first 5s (lock lifts ~1s in)
+				elseif elapsed < 15 then
+					interval = 1     -- every 1s from 5-15s
+				else
+					interval = 3     -- every 3s from 15-35s
 				end
-			end)
+				dbg("tryFinalizePending: scheduling retry in", interval, "s")
+				pending.timerScheduled = true
+				C_Timer.After(interval, function()
+					pending.timerScheduled = false
+					if pending.targetConfigID then
+						tryFinalizePending()
+					end
+				end)
+			end
 		else
 			dbg("tryFinalizePending: 35s timeout reached — aborting")
 			showSwitchFailed()
