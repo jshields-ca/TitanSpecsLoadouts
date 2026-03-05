@@ -12,6 +12,9 @@ local frame = CreateFrame("Button", "TitanPanel" .. PluginID .. "Button", UIPare
 local pending = {
 	targetSpecID = nil,
 	targetConfigID = nil,
+	retryCount = 0,
+	firstErrorTime = nil,   -- GetTime() when first LoadConfig Error occurred (drives retry abort)
+	timerScheduled = false, -- true while a C_Timer retry is outstanding (prevents timer explosion)
 }
 
 -- Track the config we loaded ourselves, since GetLastSelectedSavedConfigID
@@ -28,6 +31,14 @@ local lastKnownSpecID = nil
 -- new spec, so tryFinalizePending must not call LoadConfig yet or WoW's
 -- engine auto-load will overwrite it immediately afterward.
 local specSettling = false
+
+-- Set to true to print diagnostic info to the chat frame.
+local DEBUG_SPEC_LOAD = false
+local function dbg(...)
+	if DEBUG_SPEC_LOAD then
+		print("|cffff9900[TitanSpecLoad]|r", ...)
+	end
+end
 
 local function getTitanHideMenuText()
 	if TITAN_PANEL_MENU_HIDE and TITAN_PANEL_MENU_HIDE ~= "" then
@@ -286,9 +297,15 @@ local function getSavedLoadoutsBySpecID(specID)
 	end
 
 	local configIDs = C_ClassTalents.GetConfigIDsBySpecID(specID) or {}
+	dbg("getSavedLoadoutsBySpecID: querying specID=", tostring(specID),
+		"found", tostring(#configIDs), "configID(s)")
 	local loadouts = {}
 	for _, configID in ipairs(configIDs) do
 		local cfg = getConfigInfo(configID)
+		dbg("  configID=", tostring(configID),
+			"name=", tostring(cfg and cfg.name),
+			"type=", tostring(cfg and cfg.type),
+			"modifiedSpecID=", tostring(cfg and cfg.modifiedSpecID))
 		if cfg then
 			tinsert(loadouts, {
 				configID = configID,
@@ -339,6 +356,9 @@ end
 local function clearPending()
 	pending.targetSpecID = nil
 	pending.targetConfigID = nil
+	pending.retryCount = 0
+	pending.firstErrorTime = nil
+	pending.timerScheduled = false
 end
 
 local function loadConfigID(specID, configID)
@@ -368,6 +388,7 @@ local function tryFinalizePending()
 	-- Block LoadConfig until that auto-load is complete so our chosen
 	-- loadout is not overwritten by WoW's engine default.
 	if specSettling then
+		dbg("tryFinalizePending: blocked by specSettling")
 		return
 	end
 
@@ -378,6 +399,8 @@ local function tryFinalizePending()
 	-- Must already be on the target spec; if not, wait for the next event
 	local currentSpec = getCurrentSpecInfo()
 	if not currentSpec or currentSpec.specID ~= pending.targetSpecID then
+		dbg("tryFinalizePending: spec mismatch — current=",
+			tostring(currentSpec and currentSpec.specID), "target=", tostring(pending.targetSpecID))
 		return
 	end
 
@@ -387,15 +410,81 @@ local function tryFinalizePending()
 		return
 	end
 
+	-- Diagnostic-only pre-call snapshot (guarded: these API calls are skipped when
+	-- DEBUG_SPEC_LOAD is false so they don't add overhead on every retry in production)
+	if DEBUG_SPEC_LOAD then
+		local activeConfigID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+		local targetCfg = getConfigInfo(pending.targetConfigID)
+		local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
+		local lastSelectedID = currentSpec and C_ClassTalents.GetLastSelectedSavedConfigID
+			and C_ClassTalents.GetLastSelectedSavedConfigID(currentSpec.specID)
+		dbg("tryFinalizePending: pre-call — retry#", tostring(pending.retryCount),
+			"targetConfigID=", tostring(pending.targetConfigID),
+			"name=", tostring(targetCfg and targetCfg.name),
+			"type=", tostring(targetCfg and targetCfg.type),
+			"modifiedSpecID=", tostring(targetCfg and targetCfg.modifiedSpecID),
+			"activeSlotID=", tostring(activeConfigID),
+			"lastSelectedSavedID=", tostring(lastSelectedID),
+			"inCombat=", tostring(inCombat))
+	end
+
 	local result = C_ClassTalents.LoadConfig(pending.targetConfigID, true)
 	result = normalizeLoadConfigResult(result)
+	dbg("tryFinalizePending: LoadConfig(true) result=", tostring(result),
+		"Error enum=", tostring(Enum and Enum.LoadConfigResult and Enum.LoadConfigResult.Error))
 
 	if Enum and Enum.LoadConfigResult and result == Enum.LoadConfigResult.Error then
-		-- Spec is not fully settled yet; keep pending and retry on next event
+		-- WoW holds a global talent-change lock during/after a spec switch.
+		-- All LoadConfig calls (for any saved config) return Error during this window.
+		-- The lock lifts ~1s after the final TRAIT_CONFIG_UPDATED event.
+		-- We retry with growing intervals to outlast the lock while minimising the
+		-- visible gap between WoW's auto-load (default config) and our target.
+		--
+		-- timerScheduled prevents multiple concurrent event-triggered failures from
+		-- each spawning their own 0.25s timer chain (which would grow exponentially).
+		-- Event-triggered calls still fire for free; the timer is only the backstop.
+		if not pending.firstErrorTime then
+			pending.firstErrorTime = GetTime()
+		end
+		local elapsed = GetTime() - pending.firstErrorTime
+		pending.retryCount = pending.retryCount + 1
+		dbg("tryFinalizePending: LoadConfig returned Error — retry #", pending.retryCount,
+			"elapsed=", string.format("%.2f", elapsed), "s")
+
+		local maxWindow = 35  -- seconds; covers ~30s spec-switch cooldown plus margin
+
+		if elapsed < maxWindow then
+			if not pending.timerScheduled then
+				-- Interval grows with elapsed: fast early to minimise the 2-load gap,
+				-- slower later to avoid spamming the API during a long cooldown.
+				local interval
+				if elapsed < 5 then
+					interval = 0.25  -- poll every 0.25s for first 5s (lock lifts ~1s in)
+				elseif elapsed < 15 then
+					interval = 1     -- every 1s from 5-15s
+				else
+					interval = 3     -- every 3s from 15-35s
+				end
+				dbg("tryFinalizePending: scheduling retry in", interval, "s")
+				pending.timerScheduled = true
+				C_Timer.After(interval, function()
+					pending.timerScheduled = false
+					if pending.targetConfigID then
+						tryFinalizePending()
+					end
+				end)
+			end
+		else
+			dbg("tryFinalizePending: 35s timeout reached — aborting")
+			showSwitchFailed()
+			clearPending()
+			updateButton()
+		end
 		return
 	end
 
 	-- LoadInProgress or NoChangesNecessary both mean the load is applying
+	dbg("tryFinalizePending: SUCCESS — loadout applied, clearing pending")
 	addonTrackedConfigID = pending.targetConfigID
 	clearPending()
 	updateButton()
@@ -427,6 +516,8 @@ local function activateLoadout(specID, configID)
 	end
 	pending.targetSpecID = specID
 	pending.targetConfigID = configID
+	dbg("activateLoadout: cross-spec switch initiated targetSpecID=", tostring(specID),
+		"targetConfigID=", tostring(configID))
 
 	if not C_SpecializationInfo and not SetSpecialization then
 		loadConfigID(specID, configID)
@@ -440,6 +531,16 @@ local function activateLoadout(specID, configID)
 		local candidateSpecID = apiGetSpecializationInfo(specIndex)
 		if candidateSpecID == specID then
 			apiSetSpecialization(specIndex)
+			-- Safety net: if pending is still set after 3 seconds (all event paths
+			-- failed or LoadConfig kept returning Error), force-clear specSettling and retry.
+			C_Timer.After(3, function()
+				if pending.targetConfigID then
+					dbg("C_Timer safety net fired: pending still set after 3s, specSettling=",
+						tostring(specSettling), "— forcing retry")
+					specSettling = false
+					tryFinalizePending()
+				end
+			end)
 			return
 		end
 	end
@@ -581,6 +682,9 @@ local eventsTable = {
 		-- Guard against nil: if the spec API is unavailable mid-event, don't clear.
 		local currentSpec = getCurrentSpecInfo()
 		local currentSpecID = currentSpec and currentSpec.specID
+		dbg("ACTIVE_TALENT_GROUP_CHANGED: currentSpecID=", tostring(currentSpecID),
+			"lastKnownSpecID=", tostring(lastKnownSpecID),
+			"pending.targetSpecID=", tostring(pending.targetSpecID))
 		if currentSpecID and currentSpecID ~= lastKnownSpecID then
 			addonTrackedConfigID = nil
 			lastKnownSpecID = currentSpecID
@@ -601,6 +705,8 @@ local eventsTable = {
 		-- Guard against nil: if the spec API is unavailable mid-event, don't clear.
 		local currentSpec = getCurrentSpecInfo()
 		local currentSpecID = currentSpec and currentSpec.specID
+		dbg("PLAYER_SPECIALIZATION_CHANGED: currentSpecID=", tostring(currentSpecID),
+			"lastKnownSpecID=", tostring(lastKnownSpecID), "specSettling=", tostring(specSettling))
 		if currentSpecID and currentSpecID ~= lastKnownSpecID then
 			addonTrackedConfigID = nil
 			lastKnownSpecID = currentSpecID
@@ -609,15 +715,39 @@ local eventsTable = {
 		updateButton()
 	end,
 	TRAIT_CONFIG_LIST_UPDATED = function()
+		dbg("TRAIT_CONFIG_LIST_UPDATED: specSettling=", tostring(specSettling),
+			"pending.targetSpecID=", tostring(pending.targetSpecID))
 		onRelevantUpdate()
 	end,
 	TRAIT_CONFIG_UPDATED = function()
+		-- TRAIT_CONFIG_UPDATED fires when WoW finishes loading any config, including
+		-- the engine's auto-load of its default config after a spec change.
+		-- This is more reliable than PLAYER_TALENT_UPDATE for clearing specSettling:
+		-- PLAYER_TALENT_UPDATE can fire before ACTIVE_TALENT_GROUP_CHANGED sets the
+		-- flag (missing the window), or may not fire for passive engine auto-loads.
+		-- When we are settling and the spec has already switched to our target,
+		-- the auto-load just completed and it is now safe to apply our config.
+		local currentSpec = getCurrentSpecInfo()
+		dbg("TRAIT_CONFIG_UPDATED: specSettling=", tostring(specSettling),
+			"pending.targetSpecID=", tostring(pending.targetSpecID),
+			"currentSpecID=", tostring(currentSpec and currentSpec.specID))
+		if specSettling and pending.targetSpecID then
+			if currentSpec and currentSpec.specID == pending.targetSpecID then
+				dbg("TRAIT_CONFIG_UPDATED: spec matches target — clearing specSettling")
+				specSettling = false
+			else
+				dbg("TRAIT_CONFIG_UPDATED: spec NOT yet target — staying settled")
+			end
+		end
 		onRelevantUpdate()
 	end,
 	PLAYER_TALENT_UPDATE = function()
 		-- Keep lastKnownSpecID current so PLAYER_SPECIALIZATION_CHANGED comparisons are accurate.
 		local spec = getCurrentSpecInfo()
 		if spec then lastKnownSpecID = spec.specID end
+		dbg("PLAYER_TALENT_UPDATE: specSettling=", tostring(specSettling),
+			"currentSpecID=", tostring(spec and spec.specID),
+			"pending.targetSpecID=", tostring(pending.targetSpecID))
 		-- Talents are now fully settled: WoW has completed its post-spec-switch auto-load
 		-- of the default loadout. It is now safe to call LoadConfig for our chosen loadout
 		-- without it being overwritten by the engine. Clear specSettling before
