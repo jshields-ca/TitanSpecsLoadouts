@@ -303,7 +303,8 @@ local function getSavedLoadoutsBySpecID(specID)
 		local cfg = getConfigInfo(configID)
 		dbg("  configID=", tostring(configID),
 			"name=", tostring(cfg and cfg.name),
-			"cfgSpecID=", tostring(cfg and cfg.specID))
+			"type=", tostring(cfg and cfg.type),
+			"modifiedSpecID=", tostring(cfg and cfg.modifiedSpecID))
 		if cfg then
 			tinsert(loadouts, {
 				configID = configID,
