@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [0.1.1] - 2026-03-05
+
+### Fixed
+- **Cross-spec loadout switching** now reliably applies the chosen loadout. WoW holds a global talent-change lock for ~1 second after a spec switch completes; the previous retry window (5 × 0.5 s) could expire before the lock lifted, causing the wrong loadout (WoW's auto-loaded default for the new spec) to remain in place, or the button to stay stuck on "Loading..." indefinitely.
+- Replaced fixed-count retry with a **time-based 35-second retry window** using growing intervals (0.25 s → 1 s → 3 s), covering both normal and cooldown-delayed spec switches.
+- Added `timerScheduled` guard to prevent multiple rapid events from spawning exponentially growing timer chains during the retry window.
+- Added 3-second safety-net timer in `activateLoadout` for cases where all event-driven retry paths fail.
+
+---
+
 ## [0.1.0] - 2026-02-24
 
 Initial release.

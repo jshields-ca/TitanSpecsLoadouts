@@ -48,7 +48,7 @@ If you frequently swap between raid, Mythic+, solo, or utility setups, this plug
 ## Notes
 
 - In combat, WoW blocks spec and talent changes natively. The addon surfaces Blizzard's own error in that case.
-- Cross-spec switching involves a brief delay while the game processes the spec change before the loadout is applied — this is expected behavior.
+- Cross-spec switching involves a brief delay (~0.5 s) while WoW processes the spec change and releases its internal talent lock before the chosen loadout is applied — this is expected behavior.
 - Uses modern Retail talent loadout APIs (`C_ClassTalents`, `C_SpecializationInfo`).
 
 ## Author
