@@ -412,8 +412,9 @@ local function tryFinalizePending()
 	local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
 	dbg("tryFinalizePending: pre-call —",
 		"targetConfigID=", tostring(pending.targetConfigID),
-		"targetCfg.name=", tostring(targetCfg and targetCfg.name),
-		"targetCfg.specID=", tostring(targetCfg and targetCfg.specID),
+		"name=", tostring(targetCfg and targetCfg.name),
+		"type=", tostring(targetCfg and targetCfg.type),
+		"modifiedSpecID=", tostring(targetCfg and targetCfg.modifiedSpecID),
 		"activeConfigID=", tostring(activeConfigID),
 		"inCombat=", tostring(inCombat))
 
@@ -423,10 +424,16 @@ local function tryFinalizePending()
 		"Error enum=", tostring(Enum and Enum.LoadConfigResult and Enum.LoadConfigResult.Error))
 
 	if Enum and Enum.LoadConfigResult and result == Enum.LoadConfigResult.Error then
-		-- Also try without autoApply to see if that makes a difference
-		local result2 = C_ClassTalents.LoadConfig(pending.targetConfigID, false)
-		result2 = normalizeLoadConfigResult(result2)
-		dbg("tryFinalizePending: LoadConfig(false) result=", tostring(result2))
+		-- Decisive test: try loading the ALREADY-ACTIVE config to find out if
+		-- LoadConfig is globally broken right now, or only for our targetConfigID.
+		-- Expected: NoChangesNecessary (2) if LoadConfig works at all; Error (0) if broken globally.
+		if activeConfigID then
+			local activeTest = C_ClassTalents.LoadConfig(activeConfigID, false)
+			activeTest = normalizeLoadConfigResult(activeTest)
+			dbg("tryFinalizePending: LoadConfig(activeConfigID=", tostring(activeConfigID),
+				", false) result=", tostring(activeTest),
+				"(2=NoChangesNecessary means LoadConfig works for active config)")
+		end
 
 		-- Retry with back-off; show failure to the user after too many attempts
 		pending.retryCount = pending.retryCount + 1
